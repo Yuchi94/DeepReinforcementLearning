@@ -37,14 +37,21 @@ class Reinforce(object):
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
         
-        states, actions, rewards = self.generate_episode(env)
+        states, act_probs, act_OH, rewards = self.generate_episode(env)
+        act_probs = np.squeeze(np.asarray(act_probs), axis=1)
+        act_OH = np.asarray(act_OH)
         container = np.empty((0, 4))
 
-        for i, (s, a, r) in enumerate(zip(states, actions, rewards)): 
-            acts = self.model.predict(np.reshape(s, (1, self.num_obs)))  # 4 float out for action
-            
-            Gt = sum(rewards[i:])
-            container = np.append(container, Gt*np.log(acts), axis=0)  # will be [T, 4]
+        # iterate through to get Gt at each time step
+        Gt = np.asarray([sum(rewards[i:]) for i in range (len(rewards))])
+
+        # [n, 1] vector, the probability of taking the ideal action
+        temp_sum = np.log(np.sum(act_probs*act_OH, axis=1))
+        temp = Gt*temp_sum
+        loss = 1/len(states)*np.sum(temp, axis=0)
+
+
+        pdb.set_trace()
 
         # summation process
         summation = np.sum(container, axis=0)  # sum along the vertical
@@ -62,7 +69,7 @@ class Reinforce(object):
 
 
     def PG_loss (self, input):
-        return 1/T*tf.gradients(input, input)
+        return input
 
 
     def generate_episode(self, env, render=False):
@@ -73,7 +80,8 @@ class Reinforce(object):
         # - a list of rewards, indexed by time step
         # TODO: Implement this method.
         states = []
-        actions = []
+        actions_OH = []
+        actions_prob = []
         rewards = []
 
         done = False
@@ -87,12 +95,13 @@ class Reinforce(object):
             next_obs, reward, done, _ = env.step(action_chosen)
 
             states.append(obs)
-            actions.append(oh_vec[0].astype(int))
+            actions_prob.append(acts)
+            actions_OH.append(oh_vec[0].astype(int))
             rewards.append(reward)
 
             obs = next_obs
 
-        return states, actions, rewards
+        return states, actions_prob, actions_OH, rewards
 
 
 def parse_arguments():
