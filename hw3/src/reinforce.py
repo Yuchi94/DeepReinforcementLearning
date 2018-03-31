@@ -53,11 +53,6 @@ class Reinforce(object):
 
         pdb.set_trace()
 
-        # summation process
-        summation = np.sum(container, axis=0)  # sum along the vertical
-        loss = 1/len(rewards)*summation
-        loss = tf.convert_to_tensor(loss)
-
         # dont know whats happening here ...
         print ('loss')
         self.model.fit(verbose=0)
