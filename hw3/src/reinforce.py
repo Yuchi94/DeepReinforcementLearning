@@ -24,72 +24,63 @@ class Reinforce(object):
         self.env = env
         self.num_obs = self.env.observation_space.shape[0]
         self.num_acts = 4
+        self.lr = lr
+        self.layers = [8, 16, 16, 4]
 
-        # TODO: Define any training operations and optimizers here, initialize
-        #       your variables, or alternately compile your model here. 
-        adam = optimizers.Adam(lr = 0.0001, beta_1 = 0.9, beta_2 = 0.999, epsilon = None, decay = 0.0, amsgrad = False)
-        
-        action_prob = self.model.output
-        self.action_OH = k.placeholder(shape=(None, self.num_acts))
-        self.rewards = k.placeholder(shape=(None))
-        loss = k.mean(self.rewards * -k.log(k.sum(self.action_OH * action_prob, axis = 1)))
+        self.buildModel()
 
-        self.optimizer = tf.train.AdamOptimizer().minimize(loss)
-        update_op = adam.get_updates(params = self.model.trainable_weights, loss = loss)
-        #self.train_op = k.function(inputs = [self.model.input, action_OH, rewards], outputs = [], updates = update_op)
-                
-        #self.model.compile(loss = self.PG_loss,  # gradient loss is just XE
-        #                   optimizer = adam,
-        #                   metrics = [metrics.mae, metrics.categorical_accuracy]) 
+
+    def buildModel(self):
+        self.input_state = tf.placeholder(tf.float32, [None, self.num_obs],
+                                          name='input_state')
+
+        layer = self.input_state
+        for i in range(len(self.layers) - 1):
+            layer = tf.layers.dense(layer, self.layers[i], tf.nn.relu, name = 'FC_Layer_' + str(i))
+
+        self.output_prob = tf.layers.dense(layer, self.layers[-1], tf.nn.softmax, name='Softmax_Layer')
+        self.rewards = tf.placeholder(tf.float32, shape=(None))
+        self.actions = tf.placeholder(tf.float32, shape=(None, self.num_acts))
+        self.loss = tf.reduce_mean(self.rewards * -tf.log(tf.reduce_sum(self.actions * self.output_prob, axis = 1)))
+        self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
+
         self.writer = tf.summary.FileWriter("logs", graph=tf.get_default_graph())
+        self.sess = tf.InteractiveSession()
+        self.saver = tf.train.Saver()
+        self.sess.run(tf.initialize_all_variables())
+
+    def trainModel(self, input, actions, rewards):
+        _, loss = self.sess.run([self.train_op, self.loss],
+                      feed_dict={self.input_state: input, self.actions: actions, self.rewards: rewards})
+
+        return loss
+
+    def predict(self, input):
+        return self.sess.run(self.output_prob,
+                      feed_dict={self.input_state: input})
+
     def train(self, env, gamma=1.0):
-        # Trains the model on a single episode using REINFORCE.
-        # TODO: Implement this method. It may be helpful to call the class
-        #       method generate_episode() to generate training data.
-        for i in range(50000): 
+        for i in range(200000):
             states, act_probs, act_OH, rewards = self.generate_episode(env)
-            act_probs = np.squeeze(np.asarray(act_probs), axis=1)
             act_OH = np.asarray(act_OH)
-            container = np.empty((0, 4))
 
-            # iterate through to get Gt at each time step
-            Gt = np.asarray([sum(rewards[i:]) for i in range (len(rewards))])
-
-            # [n, 1] vector, the probability of taking the ideal action
-            temp_sum = np.log(np.sum(act_probs*act_OH, axis=1))
-            temp = Gt*temp_sum
-            loss = 1/len(states)*np.sum(temp, axis=0)
-
-            # dont know whats happening here ...
-            #print ('loss: ' + str(loss) + " return : " + str(np.sum(Gt)))
+            loss = self.trainModel(states, act_OH, rewards)
             summary = tf.Summary(value=[
                         tf.Summary.Value(tag="Loss", simple_value=loss),
                     ])
             self.writer.add_summary(summary, i)
-
+            #
             summary = tf.Summary(value=[
-                        tf.Summary.Value(tag="Gain", simple_value=np.sum(Gt)),
+                        tf.Summary.Value(tag="Training reward", simple_value=rewards[0]),
                     ])
             self.writer.add_summary(summary, i)
-
-            k.get_session().run(self.optimizer, feed_dict={self.model.inputs[0]: states, self.action_OH: act_OH, self.rewards: rewards})
-            
 
 
     def one_hot(self, data, num_c):
         targets = data.reshape(-1)
         return np.eye(num_c)[targets]
 
-    def PG_loss (self, input):
-        return input 
-
     def generate_episode(self, env, render=False):
-        # Generates an episode by executing the current policy in the given env.
-        # Returns:
-        # - a list of states, indexed by time step
-        # - a list of actions, indexed by time step
-        # - a list of rewards, indexed by time step
-        # TODO: Implement this method.
         states = []
         actions_OH = []
         actions_prob = []
@@ -98,12 +89,12 @@ class Reinforce(object):
         done = False
         obs = env.reset()
 
-        while (not done):
+        while not done:
 
-            acts = self.model.predict(np.reshape(obs, (1,8)))  # 4 float out for action
-            action_chosen = np.argmax(acts)
+            acts = self.predict(np.reshape(obs, (1,8)))  # 4 float out for action
+            action_chosen = np.random.choice(4, 1, p = np.squeeze(acts))
             oh_vec = self.one_hot(action_chosen, self.num_acts)  # returns a np array in a list
-            next_obs, reward, done, _ = env.step(action_chosen)
+            next_obs, reward, done, _ = env.step(np.squeeze(action_chosen))
 
             states.append(obs)
             actions_prob.append(acts)
@@ -112,7 +103,7 @@ class Reinforce(object):
 
             obs = next_obs
 
-        return states, actions_prob, actions_OH, rewards
+        return states, actions_prob, actions_OH, np.cumsum(rewards[::-1])[::-1]
 
 
 def parse_arguments():
@@ -151,10 +142,10 @@ def main(args):
     env = gym.make('LunarLander-v2')
     
     # Load the policy model from file.
-    with open(model_config_path, 'r') as f:
-        model = keras.models.model_from_json(f.read())
+    # with open(model_config_path, 'r') as f:
+    #     model = keras.models.model_from_json(f.read())
 
-    re = Reinforce(model, env=env, lr=0.0001)
+    re = Reinforce(None, env=env, lr=0.0001)
     re.train(env)
 
     # TODO: Train the model using REINFORCE and plot the learning curve.
