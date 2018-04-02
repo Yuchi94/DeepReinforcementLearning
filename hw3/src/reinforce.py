@@ -145,7 +145,7 @@ def main(args):
     # with open(model_config_path, 'r') as f:
     #     model = keras.models.model_from_json(f.read())
 
-    re = Reinforce(None, env=env, lr=0.0001)
+    re = Reinforce(None, env=env, lr=0.0005)
     re.train(env)
 
     # TODO: Train the model using REINFORCE and plot the learning curve.
