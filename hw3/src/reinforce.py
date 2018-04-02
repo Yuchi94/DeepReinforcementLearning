@@ -3,7 +3,7 @@ from keras import optimizers
 from keras.layers import Activation
 from keras import losses
 from keras import metrics
-
+from keras import backend as k
 import sys
 import argparse
 import numpy as np
@@ -28,44 +28,60 @@ class Reinforce(object):
         # TODO: Define any training operations and optimizers here, initialize
         #       your variables, or alternately compile your model here. 
         adam = optimizers.Adam(lr = 0.0001, beta_1 = 0.9, beta_2 = 0.999, epsilon = None, decay = 0.0, amsgrad = False)
-        self.model.compile(loss = self.PG_loss,  # gradient loss is just XE
-                           optimizer = adam,
-                           metrics = [metrics.mae, metrics.categorical_accuracy]) 
+        
+        action_prob = self.model.output
+        self.action_OH = k.placeholder(shape=(None, self.num_acts))
+        self.rewards = k.placeholder(shape=(None))
+        loss = k.mean(self.rewards * -k.log(k.sum(self.action_OH * action_prob, axis = 1)))
 
+        self.optimizer = tf.train.AdamOptimizer().minimize(loss)
+        update_op = adam.get_updates(params = self.model.trainable_weights, loss = loss)
+        #self.train_op = k.function(inputs = [self.model.input, action_OH, rewards], outputs = [], updates = update_op)
+                
+        #self.model.compile(loss = self.PG_loss,  # gradient loss is just XE
+        #                   optimizer = adam,
+        #                   metrics = [metrics.mae, metrics.categorical_accuracy]) 
+        self.writer = tf.summary.FileWriter("logs", graph=tf.get_default_graph())
     def train(self, env, gamma=1.0):
         # Trains the model on a single episode using REINFORCE.
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
-        
-        states, act_probs, act_OH, rewards = self.generate_episode(env)
-        act_probs = np.squeeze(np.asarray(act_probs), axis=1)
-        act_OH = np.asarray(act_OH)
-        container = np.empty((0, 4))
+        for i in range(50000): 
+            states, act_probs, act_OH, rewards = self.generate_episode(env)
+            act_probs = np.squeeze(np.asarray(act_probs), axis=1)
+            act_OH = np.asarray(act_OH)
+            container = np.empty((0, 4))
 
-        # iterate through to get Gt at each time step
-        Gt = np.asarray([sum(rewards[i:]) for i in range (len(rewards))])
+            # iterate through to get Gt at each time step
+            Gt = np.asarray([sum(rewards[i:]) for i in range (len(rewards))])
 
-        # [n, 1] vector, the probability of taking the ideal action
-        temp_sum = np.log(np.sum(act_probs*act_OH, axis=1))
-        temp = Gt*temp_sum
-        loss = 1/len(states)*np.sum(temp, axis=0)
+            # [n, 1] vector, the probability of taking the ideal action
+            temp_sum = np.log(np.sum(act_probs*act_OH, axis=1))
+            temp = Gt*temp_sum
+            loss = 1/len(states)*np.sum(temp, axis=0)
 
+            # dont know whats happening here ...
+            #print ('loss: ' + str(loss) + " return : " + str(np.sum(Gt)))
+            summary = tf.Summary(value=[
+                        tf.Summary.Value(tag="Loss", simple_value=loss),
+                    ])
+            self.writer.add_summary(summary, i)
 
-        pdb.set_trace()
+            summary = tf.Summary(value=[
+                        tf.Summary.Value(tag="Gain", simple_value=np.sum(Gt)),
+                    ])
+            self.writer.add_summary(summary, i)
 
-        # dont know whats happening here ...
-        print ('loss')
-        self.model.fit(verbose=0)
+            k.get_session().run(self.optimizer, feed_dict={self.model.inputs[0]: states, self.action_OH: act_OH, self.rewards: rewards})
+            
 
 
     def one_hot(self, data, num_c):
         targets = data.reshape(-1)
         return np.eye(num_c)[targets]
 
-
     def PG_loss (self, input):
-        return input
-
+        return input 
 
     def generate_episode(self, env, render=False):
         # Generates an episode by executing the current policy in the given env.
