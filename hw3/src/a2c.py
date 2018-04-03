@@ -185,7 +185,7 @@ def main(args):
 
     # Create the environment.
     env = gym.make('LunarLander-v2')
-    env = gym.make('CartPole-v0')
+    #env = gym.make('CartPole-v0')
     a2c = A2C(env, lr, critic_lr, n)
     a2c.train(num_episodes)
 
