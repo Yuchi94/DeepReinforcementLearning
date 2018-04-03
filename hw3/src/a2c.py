@@ -17,26 +17,132 @@ class A2C(Reinforce):
     # This class inherits the Reinforce class, so for example, you can reuse
     # generate_episode() here.
 
-    def __init__(self, model, lr, critic_model, critic_lr, n=20):
-        # Initializes A2C.
-        # Args:
-        # - model: The actor model.
-        # - lr: Learning rate for the actor model.
-        # - critic_model: The critic model.
-        # - critic_lr: Learning rate for the critic model.
-        # - n: The value of N in N-step A2C.
-        self.model = model
-        self.critic_model = critic_model
+    def __init__(self, env, actor_lr, critic_lr, n):
+
+        self.env = env
+        self.actor_lr = actor_lr
+        self.critic_lr = critic_lr
         self.n = n
+        self.num_obs = self.env.observation_space.shape[0]
+        self.num_acts = self.env.action_space.n
+        self.a_layers = [self.num_obs, 16, 16, self.num_acts]
+        self.c_layers = [self.num_obs, 100, 100, 1]
 
-        # TODO: Define any training operations and optimizers here, initialize
-        #       your variables, or alternately compile your model here.  
+        self.buildActorModel()
+        self.buildCriticModel()
 
-    def train(self, env, gamma=1.0):
-        # Trains the model on a single episode using A2C.
-        # TODO: Implement this method. It may be helpful to call the class
-        #       method generate_episode() to generate training data.
-        return
+        self.writer = tf.summary.FileWriter("logs3", graph=tf.get_default_graph())
+        self.sess = tf.InteractiveSession()
+        self.saver = tf.train.Saver()
+        self.sess.run(tf.initialize_all_variables())
+        self.merge_op = tf.summary.merge_all()
+
+    def buildCriticModel(self):
+        with tf.variable_scope("Critic"):
+            self.critic_input = tf.placeholder(tf.float32, [None, self.num_obs],
+                                              name='input_state')
+            regularizer = tf.contrib.layers.l2_regularizer(scale=0.001)
+
+            layer = self.critic_input
+            for i in range(len(self.c_layers) - 1):
+                layer = tf.layers.dense(layer, self.c_layers[i], tf.nn.relu, kernel_regularizer=regularizer, name = 'FC_Layer_' + str(i))
+
+            self.state_values = tf.layers.dense(layer, self.c_layers[-1], kernel_regularizer=regularizer, name='Output_Layer')
+            self.state_summary = tf.summary.histogram('State Values', self.state_values)
+
+            self.critic_rewards = tf.placeholder(tf.float32, shape=(None))
+            self.critic_loss = tf.losses.mean_squared_error(self.state_values, self.critic_rewards)
+
+        self.critic_train_op = tf.train.AdamOptimizer(self.critic_lr).minimize(self.critic_loss,
+                                                                   var_list = tf.trainable_variables('Critic'))
+
+    def buildActorModel(self):
+        with tf.variable_scope("Actor"):
+            self.actor_input = tf.placeholder(tf.float32, [None, self.num_obs],
+                                              name='input_state')
+
+            layer = self.actor_input
+            for i in range(len(self.a_layers) - 1):
+                layer = tf.layers.dense(layer, self.a_layers[i], tf.nn.relu, name = 'FC_Layer_' + str(i))
+
+            self.output_prob = tf.layers.dense(layer, self.a_layers[-1], tf.nn.softmax, name='Softmax_Layer')
+            self.action_summary = tf.summary.histogram('Action Probabilities', self.output_prob)
+
+            self.actor_rewards = tf.placeholder(tf.float32, shape=(None))
+            self.actor_actions = tf.placeholder(tf.float32, shape=(None, self.num_acts))
+            self.actor_state_values = tf.placeholder(tf.float32, shape=(None))
+            self.actor_loss = tf.reduce_mean((self.actor_rewards - self.actor_state_values) *
+                                             -tf.log(tf.reduce_sum(self.actor_actions * self.output_prob, axis = 1)))
+
+        self.actor_train_op = tf.train.AdamOptimizer(self.actor_lr).minimize(self.actor_loss,
+                                                                     var_list = tf.trainable_variables('Actor'))
+
+    def getStateValues(self, input):
+        return self.sess.run(self.state_values,
+                      feed_dict={self.critic_input: input})
+
+    def getActionProb(self, input):
+        return self.sess.run(self.output_prob,
+                      feed_dict={self.actor_input: input})
+
+    def predict(self, input):
+        #wrapper for getActionProb
+        return self.getActionProb(input)
+
+    def getCummRewards(self, values, rewards, gamma):
+        #TODO: gamma not used. Implement if required
+        v_end = np.pad(np.squeeze(values), ((0, self.n)), mode = 'constant')[self.n:]
+        # v_end[-self.n:] = 0
+
+        c_rewards = np.cumsum(rewards)
+        shift_reward = np.pad(c_rewards, ((0, self.n)), mode = 'edge')[self.n:]
+        rt = v_end + shift_reward - c_rewards + rewards
+
+        return rt
+        # 1111111
+        # 2345677
+        # 1234567
+
+    def trainActor(self, input, actions, rewards, state_values):
+        _, loss, summary = self.sess.run([self.actor_train_op, self.actor_loss, self.action_summary],
+        feed_dict={self.actor_input: input, self.actor_actions: actions, self.actor_rewards: rewards, self.actor_state_values : state_values})
+
+        return loss, summary
+
+    def trainCritic(self, input, rewards):
+        _, loss, summary = self.sess.run([self.critic_train_op, self.critic_loss, self.state_summary],
+        feed_dict={self.critic_input: input, self.critic_rewards: rewards})
+
+        return loss, summary
+
+
+    def train(self, num_episodes, gamma=1.0):
+        for i in range(num_episodes):
+            states, act_probs, act_OH, rewards = self.generate_episode(False)
+            values = self.getStateValues(states)
+            c_rewards = self.getCummRewards(values, rewards, gamma)
+
+            act_OH = np.asarray(act_OH)
+
+            loss, summary = self.trainActor(states, act_OH, c_rewards, values)
+            self.writer.add_summary(summary, i)
+
+            summary = tf.Summary(value=[tf.Summary.Value(tag="Actor Loss", simple_value=loss),])
+            self.writer.add_summary(summary, i)
+
+            loss, summary = self.trainCritic(states, c_rewards)
+            self.writer.add_summary(summary, i)
+
+            summary = tf.Summary(value=[tf.Summary.Value(tag="Critic Loss", simple_value=loss),])
+            self.writer.add_summary(summary, i)
+
+            summary = tf.Summary(value=[tf.Summary.Value(tag="Training reward", simple_value=np.sum(rewards)),])
+            self.writer.add_summary(summary, i)
+
+            if i % 1000:
+                self.saver.save(self.sess, "save/A2C_" + str(i))
+
+
 
 
 def parse_arguments():
@@ -79,10 +185,9 @@ def main(args):
 
     # Create the environment.
     env = gym.make('LunarLander-v2')
-    
-    # Load the actor model from file.
-    with open(model_config_path, 'r') as f:
-        model = keras.models.model_from_json(f.read())
+    env = gym.make('CartPole-v0')
+    a2c = A2C(env, lr, critic_lr, n)
+    a2c.train(num_episodes)
 
     # TODO: Train the model using A2C and plot the learning curves.
 
