@@ -45,7 +45,7 @@ class Reinforce(object):
         self.loss = tf.reduce_mean(self.rewards * -tf.log(tf.reduce_sum(self.actions * self.output_prob, axis = 1)))
         self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
 
-        self.writer = tf.summary.FileWriter("logs2", graph=tf.get_default_graph())
+        self.writer = tf.summary.FileWriter("logs3", graph=tf.get_default_graph())
         self.sess = tf.InteractiveSession()
         self.saver = tf.train.Saver()
         self.sess.run(tf.initialize_all_variables())
@@ -107,7 +107,7 @@ class Reinforce(object):
             states.append(obs)
             actions_prob.append(acts)
             actions_OH.append(oh_vec[0].astype(int))
-            rewards.append(reward)
+            rewards.append(reward/100)
 
             obs = next_obs
 

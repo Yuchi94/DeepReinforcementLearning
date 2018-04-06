@@ -25,8 +25,8 @@ class A2C(Reinforce):
         self.n = n
         self.num_obs = self.env.observation_space.shape[0]
         self.num_acts = self.env.action_space.n
-        self.a_layers = [self.num_obs, 16, 16, self.num_acts]
-        self.c_layers = [self.num_obs, 100, 100, 50, 1]
+        self.a_layers = [30, 30, 30, self.num_acts]
+        self.c_layers = [30, 30, 30, 1]
 
         self.buildActorModel()
         self.buildCriticModel()
@@ -41,17 +41,16 @@ class A2C(Reinforce):
         with tf.variable_scope("Critic"):
             self.critic_input = tf.placeholder(tf.float32, [None, self.num_obs],
                                               name='input_state')
-            regularizer = tf.contrib.layers.l2_regularizer(scale=0.001)
 
             layer = self.critic_input
             for i in range(len(self.c_layers) - 1):
-                layer = tf.layers.dense(layer, self.c_layers[i], tf.nn.relu, kernel_regularizer=regularizer, name = 'FC_Layer_' + str(i))
+                layer = tf.layers.dense(layer, self.c_layers[i], tf.nn.relu, name = 'FC_Layer_' + str(i))
 
-            self.state_values = tf.layers.dense(layer, self.c_layers[-1], kernel_regularizer=regularizer, name='Output_Layer')
+            self.state_values = tf.layers.dense(layer, self.c_layers[-1], name='Output_Layer')
             self.state_summary = tf.summary.histogram('State Values', self.state_values)
 
             self.critic_rewards = tf.placeholder(tf.float32, shape=(None))
-            self.critic_loss = tf.reduce_mean(tf.square(self.state_values - self.critic_rewards))
+            self.critic_loss = tf.reduce_mean(tf.square(self.critic_rewards - self.state_values))
             #self.critic_loss = tf.losses.mean_squared_error(self.state_values, self.critic_rewards)
 
         self.critic_train_op = tf.train.AdamOptimizer(self.critic_lr).minimize(self.critic_loss,
@@ -71,8 +70,7 @@ class A2C(Reinforce):
 
             self.actor_rewards = tf.placeholder(tf.float32, shape=(None))
             self.actor_actions = tf.placeholder(tf.float32, shape=(None, self.num_acts))
-            self.actor_state_values = tf.placeholder(tf.float32, shape=(None))
-            self.actor_loss = tf.reduce_mean((self.actor_rewards - self.actor_state_values) *
+            self.actor_loss = tf.reduce_mean((self.actor_rewards) *
                                              -tf.log(tf.reduce_sum(self.actor_actions * self.output_prob, axis = 1)))
 
         self.actor_train_op = tf.train.AdamOptimizer(self.actor_lr).minimize(self.actor_loss,
@@ -91,7 +89,6 @@ class A2C(Reinforce):
         return self.getActionProb(input)
 
     def getCummRewards(self, values, rewards, gamma):
-        v_end = np.zeros_like(values)
         rt = np.zeros_like(rewards)
         T = len(rewards)
         for t in range(T)[::-1]:
@@ -123,9 +120,9 @@ class A2C(Reinforce):
         # 2345677
         # 1234567
 
-    def trainActor(self, input, actions, rewards, state_values):
+    def trainActor(self, input, actions, rewards):
         _, loss, summary = self.sess.run([self.actor_train_op, self.actor_loss, self.action_summary],
-        feed_dict={self.actor_input: input, self.actor_actions: actions, self.actor_rewards: rewards, self.actor_state_values : state_values})
+        feed_dict={self.actor_input: input, self.actor_actions: actions, self.actor_rewards: rewards})
 
         return loss, summary
 
@@ -140,11 +137,11 @@ class A2C(Reinforce):
         for i in range(num_episodes):
             states, act_probs, act_OH, rewards = self.generate_episode(False)
             values = self.getStateValues(states)
-            c_rewards = self.getCummRewards(values, rewards, gamma) / 100
+            c_rewards = self.getCummRewards(values, rewards, gamma)
 
             act_OH = np.asarray(act_OH)
 
-            loss, summary = self.trainActor(states, act_OH, c_rewards, values)
+            loss, summary = self.trainActor(states, act_OH, c_rewards - values)
             self.writer.add_summary(summary, i)
 
             summary = tf.Summary(value=[tf.Summary.Value(tag="Actor Loss", simple_value=loss),])
@@ -178,7 +175,7 @@ def parse_arguments():
     parser.add_argument('--critic-lr', dest='critic_lr', type=float,
                         default=1e-4, help="The critic's learning rate.")
     parser.add_argument('--n', dest='n', type=int,
-                        default=200000000000, help="The value of N in N-step A2C.")
+                        default=20, help="The value of N in N-step A2C.")
 
     # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
     parser_group = parser.add_mutually_exclusive_group(required=False)
@@ -205,7 +202,7 @@ def main(args):
 
     # Create the environment.
     env = gym.make('LunarLander-v2')
-   # env = gym.make('CartPole-v0')
+    #env = gym.make('CartPole-v0')
     a2c = A2C(env, lr, critic_lr, n)
     a2c.train(200000)
 
