@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from reinforce import Reinforce
 
 
-class A2C(Reinforce):
+class A2C():
     # Implementation of N-step Advantage Actor Critic.
     # This class inherits the Reinforce class, so for example, you can reuse
     # generate_episode() here.
@@ -25,13 +25,13 @@ class A2C(Reinforce):
         self.n = n
         self.num_obs = self.env.observation_space.shape[0]
         self.num_acts = self.env.action_space.n
-        self.a_layers = [30, 30, 30, self.num_acts]
-        self.c_layers = [30, 30, 30, 1]
+        self.a_layers = [16, 16, 16, self.num_acts]
+        self.c_layers = [50, 50, 1]
 
         self.buildActorModel()
         self.buildCriticModel()
 
-        self.writer = tf.summary.FileWriter("logs", graph=tf.get_default_graph())
+        self.writer = tf.summary.FileWriter("logs2", graph=tf.get_default_graph())
         self.sess = tf.InteractiveSession()
         self.saver = tf.train.Saver()
         self.sess.run(tf.initialize_all_variables())
@@ -49,7 +49,7 @@ class A2C(Reinforce):
             self.state_values = tf.layers.dense(layer, self.c_layers[-1], name='Output_Layer')
             self.state_summary = tf.summary.histogram('State Values', self.state_values)
 
-            self.critic_rewards = tf.placeholder(tf.float32, shape=(None))
+            self.critic_rewards = tf.placeholder(tf.float32, shape=(None, 1))
             self.critic_loss = tf.reduce_mean(tf.square(self.critic_rewards - self.state_values))
             #self.critic_loss = tf.losses.mean_squared_error(self.state_values, self.critic_rewards)
 
@@ -68,10 +68,10 @@ class A2C(Reinforce):
             self.output_prob = tf.layers.dense(layer, self.a_layers[-1], tf.nn.softmax, name='Softmax_Layer')
             self.action_summary = tf.summary.histogram('Action Probabilities', self.output_prob)
 
-            self.actor_rewards = tf.placeholder(tf.float32, shape=(None))
+            self.actor_rewards = tf.placeholder(tf.float32, shape=(None, 1))
             self.actor_actions = tf.placeholder(tf.float32, shape=(None, self.num_acts))
             self.actor_loss = tf.reduce_mean((self.actor_rewards) *
-                                             -tf.log(tf.reduce_sum(self.actor_actions * self.output_prob, axis = 1)))
+                                             -tf.log(tf.reduce_sum(self.actor_actions * self.output_prob, axis = 1, keepdims= True)))
 
         self.actor_train_op = tf.train.AdamOptimizer(self.actor_lr).minimize(self.actor_loss,
                                                                      var_list = tf.trainable_variables('Actor'))
@@ -159,7 +159,35 @@ class A2C(Reinforce):
             if i % 1000 == 0:
                 self.saver.save(self.sess, "save/A2C_" + str(i))
 
+    def one_hot(self, data, num_c):
+        targets = data.reshape(-1)
+        return np.eye(num_c)[targets]
 
+    def generate_episode(self, render=False):
+        states = []
+        actions_OH = []
+        actions_prob = []
+        rewards = []
+
+        done = False
+        obs = self.env.reset()
+
+        while not done:
+            if render:
+                self.env.render()
+            acts = self.getActionProb(np.reshape(obs, (1,self.num_obs)))  # 4 float out for action
+            action_chosen = np.random.choice(self.num_acts, 1, p = np.squeeze(acts))
+            oh_vec = self.one_hot(action_chosen, self.num_acts)  # returns a np array in a list
+            next_obs, reward, done, _ = self.env.step(np.squeeze(action_chosen))
+
+            states.append(obs)
+            actions_prob.append(acts)
+            actions_OH.append(oh_vec[0].astype(int))
+            rewards.append([reward/100])
+
+            obs = next_obs
+
+        return np.array(states), np.array(actions_prob), np.array(actions_OH), np.array(rewards)
 
 
 def parse_arguments():
@@ -173,7 +201,7 @@ def parse_arguments():
     parser.add_argument('--lr', dest='lr', type=float,
                         default=5e-4, help="The actor's learning rate.")
     parser.add_argument('--critic-lr', dest='critic_lr', type=float,
-                        default=1e-4, help="The critic's learning rate.")
+                        default=5e-4, help="The critic's learning rate.")
     parser.add_argument('--n', dest='n', type=int,
                         default=20, help="The value of N in N-step A2C.")
 
