@@ -31,7 +31,7 @@ class A2C():
         self.buildActorModel()
         self.buildCriticModel()
 
-        self.writer = tf.summary.FileWriter("logs2", graph=tf.get_default_graph())
+        self.writer = tf.summary.FileWriter("logs", graph=tf.get_default_graph())
         self.sess = tf.InteractiveSession()
         self.saver = tf.train.Saver()
         self.sess.run(tf.initialize_all_variables())
@@ -199,11 +199,11 @@ def parse_arguments():
     parser.add_argument('--num-episodes', dest='num_episodes', type=int,
                         default=50000, help="Number of episodes to train on.")
     parser.add_argument('--lr', dest='lr', type=float,
-                        default=5e-4, help="The actor's learning rate.")
+                        default=1e-4, help="The actor's learning rate.")
     parser.add_argument('--critic-lr', dest='critic_lr', type=float,
                         default=5e-4, help="The critic's learning rate.")
     parser.add_argument('--n', dest='n', type=int,
-                        default=20, help="The value of N in N-step A2C.")
+                        default=1, help="The value of N in N-step A2C.")
 
     # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
     parser_group = parser.add_mutually_exclusive_group(required=False)
