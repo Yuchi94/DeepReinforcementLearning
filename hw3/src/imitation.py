@@ -94,6 +94,10 @@ class Imitation():
         actions = []
         rewards = []
 
+        accuracy = []
+
+
+
         # define model
         model = self.model
 
@@ -108,12 +112,26 @@ class Imitation():
         for i in range (0, num_epochs):  # number of epochs
             print('epoch: ', i)
 
+            num_correct = 0
+            num_total = 0
+
             for j in range (0, len(states)): 
+                num_total += 1
+
                 state = states[j]
                 action = actions[j]
                 reward = rewards[j]
 
-                model.fit(np.reshape(state, (1,8)), np.reshape(action, (1,4)), verbose=1)
+                # accuracy calculation
+                predicted = model.predict(np.reshape(state, (1,8)))
+                predicted_action = np.argmax(model.predict(np.reshape(state, (1,8))))
+                actual_action = np.argmax(action)
+                if actual_action == predicted_action:
+                    num_correct += 1
+
+                model.fit(np.reshape(state, (1,8)), np.reshape(action, (1,4)), verbose=0)
+
+            accuracy.append(num_correct/num_total)
 
         loss = 0
         acc = 0
@@ -122,6 +140,15 @@ class Imitation():
         model.save_weights(name_h5, overwrite=True)
         with open(name_json, "w") as outfile:
             json.dump(model.to_json(), outfile)
+
+
+        plt.plot(accuracy)
+        plt.xlabel('# of Episodes')
+        plt.ylabel('accuracy/episode')
+        plt.ylim(0, 1)
+        plt.show()
+        print (accuracy)
+        print ('final accuracy: ', num_correct/num_total)
 
         return loss, acc
 
@@ -163,7 +190,6 @@ class Imitation():
         print ('mean: ', sum(rewards)/len(rewards))
         print ('std: ', np.std(np.array(rewards)))
 
-        pdb.set_trace()
         plt.plot(rewards)
         plt.xlabel('# of Episodes')
         plt.ylabel('Reward')
@@ -211,16 +237,16 @@ def main(args):
 
     # new class
     imitate = Imitation(model_config_path, model_weights_path)
-    imitate.train(env=imitate.env, name_h5='crap.h5', name_json='crap.json', num_episodes=1, num_epochs=50, render=False)
-    # imitate.train(env=imitate.env, name_h5='10_episode.h5', name_json='10_episode.json', num_episodes=10, num_epochs=50, render=False)
-    # imitate.train(env=imitate.env, name_h5='50_episode.h5', name_json='50_episode.json', num_episodes=50, num_epochs=50, render=False)
-    # imitate.train(env=imitate.env, name_h5='100_episode.h5', name_json='100_episode.json', num_episodes=100, num_epochs=50, render=False)
+    # imitate.train(env=imitate.env, name_h5='crap.h5', name_json='crap.json', num_episodes=1, num_epochs=50, render=False)
+    # imitate.train(env=imitate.env, name_h5='crap.h5', name_json='crap.json', num_episodes=10, num_epochs=50, render=False)
+    # imitate.train(env=imitate.env, name_h5='crap.h5', name_json='crap.json', num_episodes=50, num_epochs=50, render=False)
+    imitate.train(env=imitate.env, name_h5='crap.h5', name_json='crap.json', num_episodes=100, num_epochs=50, render=False)
 
-    # with open(model_config_path, 'r') as f:
-    #     trained_model = keras.models.model_from_json(f.read())
-    # trained_model.load_weights('1_episode.h5')
+    with open(model_config_path, 'r') as f:
+        trained_model = keras.models.model_from_json(f.read())
+    trained_model.load_weights('crap.h5')
 
-    # # imitate.test(trained_model)
+    imitate.test(trained_model)
 
 
 
