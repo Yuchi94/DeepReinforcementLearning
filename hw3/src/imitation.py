@@ -11,6 +11,7 @@ import random
 import gym
 import pdb
 import json
+import matplotlib.pyplot as plt
 
 
 class Imitation():
@@ -18,7 +19,6 @@ class Imitation():
         # Load the expert model.
         with open(model_config_path, 'r') as f:
             self.expert = keras.models.model_from_json(f.read())
-            self.expert_copy = self.expert
         self.expert.load_weights(expert_weights_path)
         
         # Initialize the cloned model (to be trained).
@@ -32,9 +32,9 @@ class Imitation():
 
         # model
         adam = optimizers.Adam(lr = 0.0001, beta_1 = 0.9, beta_2 = 0.999, epsilon = None, decay = 0.0, amsgrad = False)
-        self.expert_copy.compile(loss = losses.categorical_crossentropy, 
-                                 optimizer = adam,
-                                 metrics = [metrics.mae, metrics.categorical_accuracy])
+        self.model.compile(loss = losses.categorical_crossentropy, 
+                           optimizer = adam,
+                           metrics = [metrics.mae, metrics.categorical_accuracy])
 
     def one_hot(self, data, num_c):
         targets = data.reshape(-1)
@@ -95,7 +95,7 @@ class Imitation():
         rewards = []
 
         # define model
-        model = self.expert_copy
+        model = self.model
 
         for i in range (0, num_episodes):
             print ('generating episode: ', i)
@@ -113,7 +113,7 @@ class Imitation():
                 action = actions[j]
                 reward = rewards[j]
 
-                model.fit(np.reshape(state, (1,8)), np.reshape(action, (1,4)), verbose=0)
+                model.fit(np.reshape(state, (1,8)), np.reshape(action, (1,4)), verbose=1)
 
         loss = 0
         acc = 0
@@ -124,6 +124,51 @@ class Imitation():
             json.dump(model.to_json(), outfile)
 
         return loss, acc
+
+    def test(self, model):
+        # Evaluate the performance of your agent over 100 episodes, by calculating cummulative rewards for the 100 episodes.
+        # Here you need to interact with the environment, irrespective of whether you are using a memory. 
+        # for plotting
+        rewards = []
+
+        # load pre-trained model
+        print ('loaded network')
+        for e in range (0, 50):
+            done = False
+            obs = self.env.reset()
+            print ('testing episode: ', e)
+
+            # reward
+            rt = 0
+            # self.epsilon = 0.05
+
+            while (done == False):
+                # network forward pass
+
+                obs = obs.reshape((1, self.num_obs))
+                q_values = model.predict(obs)
+
+                action = np.argmax(q_values)  # greedy works a lot better
+
+                next_obs, reward, done, _ = self.env.step(action)
+                # self.env.render()
+
+                obs = next_obs
+
+                rt += reward
+            print ('episode: ', e, ' reward is: ', rt)
+            rewards.append(rt)
+
+        print (rewards)
+        print ('mean: ', sum(rewards)/len(rewards))
+        print ('std: ', np.std(np.array(rewards)))
+
+        pdb.set_trace()
+        plt.plot(rewards)
+        plt.xlabel('# of Episodes')
+        plt.ylabel('Reward')
+        plt.ylim(-10, 250)
+        plt.show()
 
 
 def parse_arguments():
@@ -166,19 +211,21 @@ def main(args):
 
     # new class
     imitate = Imitation(model_config_path, model_weights_path)
-    imitate.train(env=imitate.env, name_h5='1_episode.h5', name_json='1_episode.json', num_episodes=1, num_epochs=50, render=False)
-    imitate.train(env=imitate.env, name_h5='10_episode.h5', name_json='10_episode.json', num_episodes=10, num_epochs=50, render=False)
-    imitate.train(env=imitate.env, name_h5='50_episode.h5', name_json='50_episode.json', num_episodes=50, num_epochs=50, render=False)
-    imitate.train(env=imitate.env, name_h5='100_episode.h5', name_json='100_episode.json', num_episodes=100, num_epochs=50, render=False)
+    imitate.train(env=imitate.env, name_h5='crap.h5', name_json='crap.json', num_episodes=1, num_epochs=50, render=False)
+    # imitate.train(env=imitate.env, name_h5='10_episode.h5', name_json='10_episode.json', num_episodes=10, num_epochs=50, render=False)
+    # imitate.train(env=imitate.env, name_h5='50_episode.h5', name_json='50_episode.json', num_episodes=50, num_epochs=50, render=False)
+    # imitate.train(env=imitate.env, name_h5='100_episode.h5', name_json='100_episode.json', num_episodes=100, num_epochs=50, render=False)
 
+    # with open(model_config_path, 'r') as f:
+    #     trained_model = keras.models.model_from_json(f.read())
+    # trained_model.load_weights('1_episode.h5')
+
+    # # imitate.test(trained_model)
 
 
 
     # 8 observations: x, y, vx, vy, angle, angv, left leg contact, right leg contact
     # 4 actions: none, left engine, main engine, right engine
-
-
-
 
 
 
