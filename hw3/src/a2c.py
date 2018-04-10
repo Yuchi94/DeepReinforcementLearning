@@ -31,7 +31,7 @@ class A2C():
         self.buildActorModel()
         self.buildCriticModel()
 
-        self.writer = tf.summary.FileWriter("logs", graph=tf.get_default_graph())
+        self.writer = tf.summary.FileWriter("a2c_n1", graph=tf.get_default_graph())
         self.sess = tf.InteractiveSession()
         self.saver = tf.train.Saver()
         self.sess.run(tf.initialize_all_variables())
@@ -106,20 +106,6 @@ class A2C():
 
         return rt
 
-        #
-        # #TODO: gamma not used. Implement if required
-        # v_end = np.pad(np.squeeze(values), ((0, self.n)), mode = 'constant')[self.n:]
-        # # v_end[-self.n:] = 0
-        #
-        # c_rewards = np.cumsum(rewards)
-        # shift_reward = np.pad(c_rewards, ((0, self.n)), mode = 'edge')[self.n:]
-        # rt = v_end + shift_reward - c_rewards + rewards
-        #
-        # return rt
-        # 1111111
-        # 2345677
-        # 1234567
-
     def trainActor(self, input, actions, rewards):
         _, loss, summary = self.sess.run([self.actor_train_op, self.actor_loss, self.action_summary],
         feed_dict={self.actor_input: input, self.actor_actions: actions, self.actor_rewards: rewards})
@@ -134,6 +120,8 @@ class A2C():
 
 
     def train(self, num_episodes, gamma=1.0):
+        r_mean = []
+        r_std = []
         for i in range(num_episodes):
             states, act_probs, act_OH, rewards = self.generate_episode(False)
             values = self.getStateValues(states)
@@ -158,6 +146,16 @@ class A2C():
 
             if i % 1000 == 0:
                 self.saver.save(self.sess, "save/A2C_" + str(i))
+
+            if i % 1000 == 0:
+                r_list = []
+                for j in range(100):
+                    _,_,_, r = self.generate_episode(False)
+                    r_list.append(np.sum(r))
+                r_mean.append(np.mean(r_list))
+                r_std.append(np.std(r_list))
+                np.savez("a2c_rewards_n1", mean = r_mean, std = r_std)
+
 
     def one_hot(self, data, num_c):
         targets = data.reshape(-1)

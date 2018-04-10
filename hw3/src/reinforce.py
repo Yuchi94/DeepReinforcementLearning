@@ -25,7 +25,7 @@ class Reinforce(object):
         self.num_obs = self.env.observation_space.shape[0]
         self.num_acts = self.env.action_space.n
         self.lr = lr
-        self.layers = [self.num_obs, 16, 16, self.num_acts]
+        self.layers = [16, 16, 16, self.num_acts]
         self.buildModel()
         
         
@@ -45,7 +45,7 @@ class Reinforce(object):
         self.loss = tf.reduce_mean(self.rewards * -tf.log(tf.reduce_sum(self.actions * self.output_prob, axis = 1)))
         self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
 
-        self.writer = tf.summary.FileWriter("logs3", graph=tf.get_default_graph())
+        self.writer = tf.summary.FileWriter("reinforce", graph=tf.get_default_graph())
         self.sess = tf.InteractiveSession()
         self.saver = tf.train.Saver()
         self.sess.run(tf.initialize_all_variables())
@@ -62,6 +62,8 @@ class Reinforce(object):
                       feed_dict={self.input_state: input})
 
     def train(self, num_episodes, render, gamma=1.0):
+        r_mean = []
+        r_std = []
         for i in range(num_episodes):
             states, act_probs, act_OH, rewards = self.generate_episode(render)
             c_rewards = np.cumsum(rewards[::-1])[::-1]
@@ -80,8 +82,17 @@ class Reinforce(object):
                     ])
             self.writer.add_summary(summary, i)
 
-            if i % 1000:
+            if i % 1000 == 0:
                 self.saver.save(self.sess, "save/REINFORCE_" + str(i))
+
+            if i % 1000 == 0:
+                r_list = []
+                for j in range(100):
+                    _, _, _, r = self.generate_episode(False)
+                    r_list.append(np.sum(r))
+                r_mean.append(np.mean(r_list))
+                r_std.append(np.std(r_list))
+                np.savez("reinforce_rewards", mean = r_mean, std = r_std)
 
     def one_hot(self, data, num_c):
         targets = data.reshape(-1)
@@ -148,10 +159,6 @@ def main(args):
 
     # Create the environment.
     env = gym.make('LunarLander-v2')
-    #env = gym.make('CartPole-v0')
-    # Load the policy model from file.
-    # with open(model_config_path, 'r') as f:
-    #     model = keras.models.model_from_json(f.read())
 
     re = Reinforce(None, env, 0.001)
     re.train(num_episodes, render)
